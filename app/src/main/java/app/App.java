@@ -3,6 +3,7 @@
  */
 package app;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 
 import com.amazonaws.AmazonServiceException;
@@ -12,8 +13,15 @@ import com.amazonaws.auth.BasicSessionCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.internal.StaticCredentialsProvider;
+import com.amazonaws.regions.Region;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.model.HeadBucketRequest;
+import com.amazonaws.services.s3.model.HeadBucketResult;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.PutObjectResult;
 import com.amazonaws.services.securitytoken.AWSSecurityTokenService;
 import com.amazonaws.services.securitytoken.AWSSecurityTokenServiceAsyncClient;
 import com.amazonaws.services.securitytoken.model.AssumeRoleRequest;
@@ -36,8 +44,8 @@ public class App {
         String bucketName = args[3];
         String keyName = args[4];
         String profile = args.length == 6 ? args[5] : null;
+
         AWSCredentialsProvider credsProvider = loadCredentials(true, profile, roleToAssume, roleSessionName);
-        System.out.println(credsProvider.getCredentials().getAWSAccessKeyId());
         uploadObject(credsProvider, filePath, bucketName, keyName);
     }
 
@@ -65,7 +73,7 @@ public class App {
         final AWSCredentialsProvider credentialsProvider;
         if (isLocal) {
             AWSSecurityTokenService stsClient = new AWSSecurityTokenServiceAsyncClient(
-                new ProfileCredentialsProvider(profile));
+                new ProfileCredentialsProvider(profile)).withRegion(Regions.EU_WEST_2);
             
             AssumeRoleRequest assumeRoleRequest = new AssumeRoleRequest().withDurationSeconds(900)
                     .withRoleArn(roleToAssume)
@@ -84,14 +92,41 @@ public class App {
     }
 
     private static void uploadObject(AWSCredentialsProvider credsProvider, String file_path, String bucket_name, String key_name) {
+        final AmazonS3 s3 = new AmazonS3Client(credsProvider).withRegion(Regions.EU_WEST_2);
+        // HeadBucketResult hbr = s3.headBucket(new HeadBucketRequest(bucket_name));
+        // System.out.println(hbr);
+
         System.out.format("Uploading %s to S3 bucket %s...\n", file_path, bucket_name);
-        final AmazonS3 s3 = new AmazonS3Client(credsProvider);
+        
+
         try {
             s3.putObject(bucket_name, key_name, new File(file_path));
+            System.out.println("Uploaded OK without SSEAlgo");    
+            uploadObjectWithSSEEncryption(s3, bucket_name, key_name);
         } catch (AmazonServiceException e) {
             System.err.println(e.getErrorMessage());
             System.exit(1);
         }
     }
+
+    private static void uploadObjectWithSSEEncryption(AmazonS3 s3Client, String bucketName, String keyName) {
+        System.out.println("Uploading with SSE AES256");
+        String objectContent = "Test object encrypted with SSE";
+        byte[] objectBytes = objectContent.getBytes();
+
+        // Specify server-side encryption.
+        ObjectMetadata objectMetadata = new ObjectMetadata();
+        objectMetadata.setContentLength(objectBytes.length);
+        objectMetadata.setSSEAlgorithm(ObjectMetadata.AES_256_SERVER_SIDE_ENCRYPTION);
+        PutObjectRequest putRequest = new PutObjectRequest(bucketName,
+                keyName + "-sse",
+                new ByteArrayInputStream(objectBytes),
+                objectMetadata);
+
+        // Upload the object and check its encryption status.
+        PutObjectResult putResult = s3Client.putObject(putRequest);
+        System.out.println("Object \"" + keyName + "\" uploaded with SSE.");
+    }
+
 }
 
