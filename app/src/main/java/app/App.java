@@ -69,7 +69,7 @@ public class App {
             
             AssumeRoleRequest assumeRoleRequest = new AssumeRoleRequest().withDurationSeconds(900)
                     .withRoleArn(roleToAssume)
-                    .withRoleSessionName("RoleSessionName");
+                    .withRoleSessionName(roleSessionName);
 
             AssumeRoleResult assumeRoleResult = stsClient.assumeRole(assumeRoleRequest);
             Credentials creds = assumeRoleResult.getCredentials();            
